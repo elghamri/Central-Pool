@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "208909995395",
+    "project_id": "central-pool-production",
+    "storage_bucket": "central-pool-production.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:208909995395:android:00101353cfc2250031bab6",
+        "android_client_info": {
+          "package_name": "finance.collaborative.centralpool"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDqQQBsJc9lUINPBlVkTOxL9rc3Fi6Nbh0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

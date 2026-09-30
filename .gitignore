@@ -20,7 +20,7 @@
 vendor/
 go.work.sum
 
-# Flutter / Dart / Android Signing
+# Flutter / Dart / Android & iOS Signing
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
@@ -34,6 +34,13 @@ android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 key.properties
 *.keystore
 *.jks
+*.p12
+*.p8
+*.mobileprovision
+
+# Node.js & Firebase Functions
+node_modules/
+functions/lib/
 
 # IDE & Editors
 .idea/

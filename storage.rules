@@ -1,0 +1,47 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function hasRole(role) {
+      return isAuthenticated() && request.auth.token.role == role;
+    }
+    
+    function isStaff() {
+      return hasRole('ADMIN') || hasRole('FINOPS') || hasRole('COMPLIANCE') || hasRole('SECURITY') || hasRole('AUDITOR');
+    }
+
+    // 1. Identity & KYC Documents (Member Upload, Compliance Read)
+    match /kyc_documents/{userId}/{fileName} {
+      allow read: if isUser(userId) || hasRole('COMPLIANCE') || hasRole('AUDITOR');
+      allow write: if isUser(userId) && request.resource.size < 10 * 1024 * 1024 // 10MB Max
+                   && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
+    }
+
+    // 2. Commercial Evidence Documents (EXT-01..07) (Staff Only)
+    match /commercial_evidence/{evidenceId}/{fileName} {
+      allow read: if isStaff();
+      allow write: if hasRole('SECURITY') || hasRole('ADMIN');
+    }
+
+    // 3. User Profile Images
+    match /avatars/{userId}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isUser(userId) && request.resource.size < 2 * 1024 * 1024 // 2MB Max
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // 4. Audit & Dispute Attachments
+    match /audit_attachments/{auditId}/{fileName} {
+      allow read: if isStaff();
+      allow write: if isStaff();
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "central-pool-dev",
+    "dev": "central-pool-dev",
+    "staging": "central-pool-staging",
+    "prod": "central-pool-production"
+  }
+}

@@ -1,0 +1,15 @@
+# Central Pool - Android Production Release Signing Template
+# INVARIANT: DO NOT COMMIT REAL PRODUCTION PASSWORDS OR KEYS TO SOURCE CONTROL.
+#
+# Usage:
+# 1. Local builds: Copy this file to 'key.properties' (which is gitignored).
+# 2. CI/CD builds: Inject the following secure environment variables:
+#    - ANDROID_STORE_FILE or ANDROID_KEYSTORE_PATH
+#    - ANDROID_STORE_PASSWORD or ANDROID_KEYSTORE_PASSWORD
+#    - ANDROID_KEY_ALIAS
+#    - ANDROID_KEY_PASSWORD
+
+storeFile=/path/to/central-pool-production.keystore
+storePassword=YOUR_PRODUCTION_STORE_PASSWORD
+keyAlias=YOUR_PRODUCTION_KEY_ALIAS
+keyPassword=YOUR_PRODUCTION_KEY_PASSWORD

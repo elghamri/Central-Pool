@@ -1,0 +1,311 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // =========================================================================
+    // HELPER FUNCTIONS & ROLE-BASED ACCESS CONTROL (RBAC)
+    // =========================================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function getUserRole() {
+      return request.auth.token.role;
+    }
+    
+    function hasRole(role) {
+      return isAuthenticated() && getUserRole() == role;
+    }
+    
+    function isAdmin() {
+      return hasRole('ADMIN');
+    }
+    
+    function isFinOps() {
+      return hasRole('FINOPS');
+    }
+    
+    function isCompliance() {
+      return hasRole('COMPLIANCE');
+    }
+    
+    function isSecurity() {
+      return hasRole('SECURITY');
+    }
+    
+    function isAuditor() {
+      return hasRole('AUDITOR');
+    }
+    
+    function isStaff() {
+      return isAdmin() || isFinOps() || isCompliance() || isSecurity() || isAuditor();
+    }
+    
+    function getCallerTenantId() {
+      return request.auth.token.tenantId;
+    }
+
+    function isSameTenant(tenantId) {
+      return isAuthenticated() && getCallerTenantId() == tenantId;
+    }
+
+    function isTenantStaff(tenantId) {
+      return isStaff() && getCallerTenantId() == tenantId;
+    }
+
+    function isServerOnly() {
+      return false; // Server mutations execute via Cloud Functions (Firebase Admin SDK)
+    }
+
+    // =========================================================================
+    // 1. USERS & PROFILES
+    // =========================================================================
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isUser(userId) && request.resource.data.role == 'MEMBER';
+      allow update: if isUser(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'kycStatus', 'tenantId']);
+      allow delete: if false; // Deletion strictly forbidden
+      
+      match /profile/{docId} {
+        allow read: if isUser(userId) || isStaff();
+        allow write: if isUser(userId);
+      }
+      
+      match /notifications/{notifId} {
+        allow read, update: if isUser(userId);
+        allow create, delete: if false; // Server-only notification dispatcher
+      }
+      
+      match /payment_methods/{methodId} {
+        allow read, write: if isUser(userId);
+      }
+      
+      match /allocations/{allocationId} {
+        allow read: if isUser(userId) || isStaff();
+        allow write: if isServerOnly(); // Derived receipt projection written only by server-side allocation flow
+      }
+
+      match /financial_obligations/{obligationId} {
+        allow read: if isUser(userId) || isStaff();
+        allow write: if isServerOnly(); // Derived obligation projection
+      }
+
+      match /payout_entitlements/{entitlementId} {
+        allow read: if isUser(userId) || isStaff();
+        allow write: if isServerOnly(); // Derived payout entitlement projection
+      }
+
+      match /period_projections/{projectionId} {
+        allow read: if isUser(userId) || isTenantStaff(resource.data.tenantId);
+        allow write: if isServerOnly(); // Derived member period projection read-model
+      }
+    }
+
+    // =========================================================================
+    // 2. GAMEYA CIRCLES, SLOTS & MEMBERS
+    // =========================================================================
+    match /gameya_circles/{circleId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && hasRole('MEMBER');
+      allow update: if isAuthenticated() && (resource.data.organizerId == request.auth.uid || isAdmin());
+      allow delete: if false; // Soft-delete only
+      
+      match /slots/{slotId} {
+        allow read: if isAuthenticated();
+        allow write: if false; // Server-only allocation engine
+      }
+      
+      match /members/{memberId} {
+        allow read: if isAuthenticated();
+        allow write: if false; // Server-only membership coordination
+      }
+
+      match /cycles/{period} {
+        allow read: if isAuthenticated();
+        allow write: if false; // Server-only period accounting
+      }
+    }
+
+    // =========================================================================
+    // 3. FINANCIAL RECORDS (CONTRIBUTIONS & PAYOUTS)
+    // =========================================================================
+    match /contributions/{contributionId} {
+      allow read: if isAuthenticated() && (resource.data.memberId == request.auth.uid || isStaff());
+      allow write: if isServerOnly(); // Cloud Functions only
+    }
+
+    match /payout_executions/{payoutId} {
+      allow read: if isAuthenticated() && (resource.data.memberId == request.auth.uid || isFinOps() || isAdmin() || isAuditor());
+      allow write: if isServerOnly(); // Cloud Functions only
+    }
+
+    match /payment_intents/{intentId} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+
+    match /payment_transactions/{txId} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+
+    // =========================================================================
+    // 4. GENERAL LEDGER & DOUBLE-ENTRY ACCOUNTING (WORM IMMUTABLE)
+    // =========================================================================
+    match /gl_accounts/{accountCode} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+
+    match /gl_journal_entries/{journalId} {
+      allow read: if isStaff();
+      allow create, update, delete: if isServerOnly(); // Immutable WORM postings
+    }
+
+    match /reconciliation_records/{recId} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+
+    // =========================================================================
+    // 5. RISK, DELINQUENCY & COMPLIANCE (KYC / AML)
+    // =========================================================================
+    match /delinquency_records/{delinquencyId} {
+      allow read: if isStaff() || (isAuthenticated() && resource.data.memberId == request.auth.uid);
+      allow write: if isServerOnly();
+    }
+
+    match /kyc_verifications/{kycId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isCompliance() || isAuditor());
+      allow write: if isServerOnly();
+    }
+
+    match /aml_screenings/{screeningId} {
+      allow read: if isCompliance() || isAuditor();
+      allow write: if isServerOnly();
+    }
+
+    // =========================================================================
+    // 6. COMMERCIAL EVIDENCE & ACTIVATION GATE (EXT-01..07)
+    // =========================================================================
+    match /commercial_evidence/{evidenceId} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+
+    match /activation_requests/{requestId} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+
+    match /activation_approvals/{approvalId} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+
+    match /commercial_readiness/{docId} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+
+    // =========================================================================
+    // 7. AUDIT LOGS, LOCKDOWNS & SYSTEM CONFIGURATION
+    // =========================================================================
+    match /audit_logs/{auditId} {
+      allow read: if isAuditor() || isSecurity();
+      allow write: if isServerOnly();
+    }
+
+    match /system_config/{configId} {
+      allow read: if isAuthenticated();
+      allow write: if isServerOnly();
+    }
+
+    match /system_lockdowns/{lockdownId} {
+      allow read: if isAuthenticated();
+      allow write: if isServerOnly();
+    }
+
+    match /insurance_policies/{policyId} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+
+    // =========================================================================
+    // 8. CENTRAL POOL CONTRACT BOUNDARIES (SEC-CP-01..06)
+    // =========================================================================
+    match /participation_requests/{requestId} {
+      allow read: if isAuthenticated() && (resource.data.memberUid == request.auth.uid || isStaff());
+      allow write: if isServerOnly(); // Cloud Functions server-authoritative submission & transitions
+    }
+
+    match /allocation_units/{unitId} {
+      allow read: if isSameTenant(resource.data.tenantId);
+      allow write: if isServerOnly(); // Computational/accounting unit managed exclusively by server
+
+      match /positions/{positionNumber} {
+        allow read: if isSameTenant(resource.data.tenantId);
+        allow write: if isServerOnly(); // Authoritative occupancy truth: Clients CANNOT create/mutate positions
+      }
+
+      match /period_projections/{projectionId} {
+        allow read: if (
+          request.auth.token.tenantId == resource.data.tenantId &&
+          resource.data.tenantId == get(/databases/$(database)/documents/allocation_units/$(unitId)).data.tenantId &&
+          (
+            isStaff() ||
+            (request.auth.uid in resource.data.authorizedMemberUids)
+          )
+        );
+        allow write: if isServerOnly(); // Derived cycle period projection read-model
+      }
+    }
+
+    match /allocation_unit_indexes/{compatibilityKey} {
+      allow read: if isSameTenant(resource.data.tenantId);
+      allow write: if isServerOnly();
+    }
+
+    match /allocation_candidates/{candidateId} {
+      allow read: if isAuthenticated() && (resource.data.memberUid == request.auth.uid || isStaff());
+      allow write: if isServerOnly();
+    }
+
+    match /idempotency_records/{idempotencyId} {
+      allow read: if isStaff() || (isAuthenticated() && resource.data.memberUid == request.auth.uid);
+      allow write: if isServerOnly();
+    }
+
+    // =========================================================================
+    // 9. CENTRAL POOL FINANCIAL FOUNDATION (STEP 6)
+    // =========================================================================
+    match /financial_obligations/{obligationId} {
+      allow read: if isAuthenticated() && (resource.data.memberUid == request.auth.uid || isStaff());
+      allow write: if isServerOnly();
+    }
+
+    match /contribution_schedules/{scheduleId} {
+      allow read: if isAuthenticated() && (resource.data.memberUid == request.auth.uid || isStaff());
+      allow write: if isServerOnly();
+    }
+
+    match /contribution_events/{eventId} {
+      allow read: if isAuthenticated() && (resource.data.memberUid == request.auth.uid || isStaff());
+      allow write: if isServerOnly();
+    }
+
+    match /payout_entitlements/{entitlementId} {
+      allow read: if isAuthenticated() && (resource.data.memberUid == request.auth.uid || isStaff());
+      allow write: if isServerOnly();
+    }
+
+    match /accounting_journal_entries/{journalEntryId} {
+      allow read: if isStaff();
+      allow write: if isServerOnly();
+    }
+  }
+}
