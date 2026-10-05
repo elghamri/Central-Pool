@@ -18,6 +18,8 @@ on:
         default: false
         type: boolean
   push:
+    branches:
+      - main
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
 
