@@ -129,7 +129,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Join the Cooperative'), findsOneWidget);
+      expect(find.text('Create Central Pool Account'), findsWidgets);
 
       // Enter details
       await tester.enterText(find.widgetWithText(StandardTextField, 'Full Legal Name'), 'Alice Cooper');

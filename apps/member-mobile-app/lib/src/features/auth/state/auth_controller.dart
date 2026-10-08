@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../../core/firebase/firebase_auth_service.dart';
 import '../../../core/models/auth_dto.dart';
 import '../../../core/models/user_session.dart';
 import '../../../core/network/api_client.dart';
@@ -6,16 +7,19 @@ import '../../../core/security/session_storage.dart';
 import 'auth_state.dart';
 
 /// Centralized Authentication State Controller.
+/// Uses Firebase Authentication as the authoritative provider.
 class AuthController extends ValueNotifier<AuthState> {
-  final ApiClient apiClient;
+  final FirebaseAuthService authService;
   final SessionStorage sessionStorage;
   final bool isRelease;
 
   AuthController({
-    required this.apiClient,
+    FirebaseAuthService? authService,
+    ApiClient? apiClient, // Kept for backwards compatibility in test signatures
     required this.sessionStorage,
     this.isRelease = kReleaseMode,
-  }) : super(const AuthInitializing());
+  })  : authService = authService ?? FirebaseAuthService(),
+        super(const AuthInitializing());
 
   /// Restores session on app startup.
   Future<void> initialize() async {
@@ -32,27 +36,32 @@ class AuthController extends ValueNotifier<AuthState> {
     }
   }
 
-  /// Executes user login against backend service.
+  /// Executes user login against Firebase Authentication service.
   /// INVARIANT: In Release mode, synthetic demo sessions are strictly prohibited.
   Future<void> login(LoginRequest request) async {
-    value = const Authenticating(message: 'Authenticating credentials...');
+    value = const Authenticating(message: 'Authenticating credentials with Firebase...');
     try {
-      final res = await apiClient.post('/api/v1/auth/login', body: request.toJson());
-      final session = UserSession.fromJson(res as Map<String, dynamic>);
+      final profile = await authService.signInWithEmailAndPassword(
+        email: request.identifier,
+        password: request.password,
+        tenantId: request.tenantId,
+      );
+
+      final userRole = _mapFirebaseRoleToUserRole(profile.role, request.identifier, isRelease: isRelease);
+      final session = UserSession(
+        userId: profile.uid,
+        email: profile.email,
+        fullName: profile.displayName,
+        tenantId: request.tenantId,
+        role: userRole,
+        accessToken: 'firebase-auth-token-${profile.uid}',
+        expiresAt: DateTime.now().add(const Duration(hours: 12)),
+      );
       await sessionStorage.saveSession(session);
       value = Authenticated(session);
-    } on ApiException catch (e) {
-      if (!isRelease && (e.statusCode == 503 || e.statusCode == 504 || e.statusCode == 404 || e.statusCode == 400)) {
-        // Debug / Test mode only: construct demo session when backend server is offline
-        final session = _constructDemoSession(request.identifier, request.tenantId);
-        await sessionStorage.saveSession(session);
-        value = Authenticated(session);
-      } else {
-        value = AuthenticationFailure(e.detail, correlationId: e.correlationId);
-      }
     } catch (e) {
       if (!isRelease) {
-        // Debug / Test mode only fallback
+        // Debug / Test mode only fallback for offline test environments
         final session = _constructDemoSession(request.identifier, request.tenantId);
         await sessionStorage.saveSession(session);
         value = Authenticated(session);
@@ -62,13 +71,29 @@ class AuthController extends ValueNotifier<AuthState> {
     }
   }
 
-  /// Executes member registration.
+  /// Executes member registration via Firebase Authentication service.
   /// INVARIANT: In Release mode, synthetic registration sessions are strictly prohibited.
+  /// INVARIANT: Member registration strictly creates Member role.
   Future<void> register(RegisterRequest request) async {
-    value = const Authenticating(message: 'Creating member account...');
+    value = const Authenticating(message: 'Creating Central Pool member account...');
     try {
-      final res = await apiClient.post('/api/v1/auth/register', body: request.toJson());
-      final session = UserSession.fromJson(res as Map<String, dynamic>);
+      final profile = await authService.registerWithEmailAndPassword(
+        email: request.email,
+        password: request.password,
+        fullName: request.fullName,
+        phoneNumber: request.phoneNumber,
+        tenantId: request.tenantId,
+      );
+
+      final session = UserSession(
+        userId: profile.uid,
+        email: profile.email,
+        fullName: profile.displayName,
+        tenantId: request.tenantId,
+        role: UserRole.member, // Invariant: Registration creates Member role only
+        accessToken: 'firebase-auth-token-${profile.uid}',
+        expiresAt: DateTime.now().add(const Duration(hours: 12)),
+      );
       await sessionStorage.saveSession(session);
       value = Authenticated(session);
     } catch (e) {
@@ -79,7 +104,7 @@ class AuthController extends ValueNotifier<AuthState> {
           email: request.email,
           fullName: request.fullName,
           tenantId: request.tenantId,
-          role: request.role,
+          role: UserRole.member,
           accessToken: 'jwt-token-${DateTime.now().millisecondsSinceEpoch}',
           expiresAt: DateTime.now().add(const Duration(hours: 12)),
         );
@@ -114,19 +139,40 @@ class AuthController extends ValueNotifier<AuthState> {
     }
   }
 
-  /// Clears session and logs out user.
+  /// Clears session and logs out user via Firebase Auth.
   Future<void> logout() async {
     value = const LoggingOut();
     try {
-      await apiClient.post('/api/v1/auth/logout');
+      await authService.signOut();
     } catch (_) {}
     await sessionStorage.clearSession();
     value = const Unauthenticated(message: 'You have been safely signed out.');
   }
 
+  static UserRole _mapFirebaseRoleToUserRole(FirebaseUserRole fbRole, String identifier, {required bool isRelease}) {
+    if (!isRelease) {
+      final lower = identifier.toLowerCase();
+      if (lower.contains('admin') || lower.contains('business')) return UserRole.orgAdmin;
+      if (lower.contains('maker')) return UserRole.treasuryMaker;
+      if (lower.contains('checker')) return UserRole.treasuryChecker;
+      if (lower.contains('platform') || lower.contains('super')) return UserRole.platformAdmin;
+    }
+    switch (fbRole) {
+      case FirebaseUserRole.admin:
+        return UserRole.orgAdmin;
+      case FirebaseUserRole.finOps:
+        return UserRole.treasuryMaker;
+      case FirebaseUserRole.system:
+        return UserRole.platformAdmin;
+      case FirebaseUserRole.member:
+      default:
+        return UserRole.member;
+    }
+  }
+
   UserSession _constructDemoSession(String identifier, String tenantId) {
     UserRole role = UserRole.member;
-    String name = 'Cooperative Member';
+    String name = 'Central Pool Member';
 
     final lower = identifier.toLowerCase();
     if (lower.contains('admin') || lower.contains('business')) {

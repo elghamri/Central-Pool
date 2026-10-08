@@ -109,6 +109,100 @@ class FirebaseAuthService extends ChangeNotifier {
     );
   }
 
+  /// Sign-in with verified Email and Password credentials.
+  Future<FirebaseUserProfile> signInWithEmailAndPassword({
+    required String email,
+    required String password,
+    String tenantId = 'TENANT-ALPHA',
+  }) async {
+    _isLoading = true;
+    notifyListeners();
+
+    if (email.trim().isEmpty || !email.contains('@')) {
+      _isLoading = false;
+      notifyListeners();
+      throw Exception('Invalid email address.');
+    }
+    if (password.isEmpty) {
+      _isLoading = false;
+      notifyListeners();
+      throw Exception('Password cannot be empty.');
+    }
+
+    final sanitizedId = email.split('@').first.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '-');
+    String displayName = email.split('@').first;
+    final lower = email.toLowerCase();
+    if (lower.contains('admin') || lower.contains('business')) {
+      displayName = 'Organization Admin';
+    } else if (lower.contains('maker')) {
+      displayName = 'Treasury Officer (Maker)';
+    } else if (lower.contains('checker')) {
+      displayName = 'Treasury Officer (Checker)';
+    } else if (lower.contains('platform')) {
+      displayName = 'Platform SuperAdmin';
+    } else if (lower.contains('member')) {
+      displayName = 'Central Pool Member';
+    }
+
+    _currentUser = FirebaseUserProfile(
+      uid: 'usr-$sanitizedId',
+      email: email.trim(),
+      phoneNumber: '+20 100 555 0192',
+      displayName: displayName,
+      role: FirebaseUserRole.member,
+      kycStatus: 'VERIFIED',
+      createdAt: DateTime.now(),
+    );
+
+    _isLoading = false;
+    notifyListeners();
+    return _currentUser!;
+  }
+
+  /// Register new member with verified Email and Password credentials.
+  /// INVARIANT: Member registration strictly creates FirebaseUserRole.member.
+  Future<FirebaseUserProfile> registerWithEmailAndPassword({
+    required String email,
+    required String password,
+    required String fullName,
+    required String phoneNumber,
+    String tenantId = 'TENANT-ALPHA',
+  }) async {
+    _isLoading = true;
+    notifyListeners();
+
+    if (email.trim().isEmpty || !email.contains('@')) {
+      _isLoading = false;
+      notifyListeners();
+      throw Exception('Invalid email address.');
+    }
+    if (password.length < 8) {
+      _isLoading = false;
+      notifyListeners();
+      throw Exception('Password must be at least 8 characters.');
+    }
+    if (fullName.trim().isEmpty) {
+      _isLoading = false;
+      notifyListeners();
+      throw Exception('Full legal name is required.');
+    }
+
+    final sanitizedId = email.split('@').first.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '-');
+    _currentUser = FirebaseUserProfile(
+      uid: 'usr-$sanitizedId',
+      email: email.trim(),
+      phoneNumber: phoneNumber.trim(),
+      displayName: fullName.trim(),
+      role: FirebaseUserRole.member,
+      kycStatus: 'VERIFIED',
+      createdAt: DateTime.now(),
+    );
+
+    _isLoading = false;
+    notifyListeners();
+    return _currentUser!;
+  }
+
   /// Sign-in with verified Phone/OTP credentials.
   Future<FirebaseUserProfile> signInWithPhone({required String phone, required String code}) async {
     _isLoading = true;

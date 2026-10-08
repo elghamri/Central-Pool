@@ -48,14 +48,13 @@ void main() async {
   }
 
   final sessionStorage = SecureSessionStorage();
-  final apiClient = ApiClient(sessionStorage: sessionStorage);
+  final firestoreService = FirebaseFirestoreService();
+  final authService = FirebaseAuthService();
   final authController = AuthController(
-    apiClient: apiClient,
+    authService: authService,
     sessionStorage: sessionStorage,
   );
 
-  final firestoreService = FirebaseFirestoreService();
-  final authService = FirebaseAuthService();
   final gameyaRepository = FirebaseGameyaRepository(
     firestoreService: firestoreService,
     authService: authService,

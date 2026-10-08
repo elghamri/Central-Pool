@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../../features/central_pool/providers/central_pool_providers.dart';
 import '../security/session_storage.dart';
 
 /// Structured RFC 7807 problem details exception.
@@ -28,12 +30,42 @@ class ApiClient {
   final String baseUrl;
   final SessionStorage sessionStorage;
   final http.Client _httpClient;
+  final bool isRelease;
 
   ApiClient({
-    this.baseUrl = 'http://localhost:8080',
+    String? baseUrl,
     required this.sessionStorage,
     http.Client? httpClient,
-  }) : _httpClient = httpClient ?? http.Client();
+    this.isRelease = kReleaseMode,
+  })  : _httpClient = httpClient ?? http.Client(),
+        baseUrl = _validateAndResolveBaseUrl(baseUrl, isRelease: isRelease);
+
+  static String _validateAndResolveBaseUrl(String? inputUrl, {required bool isRelease}) {
+    if (isRelease) {
+      final target = inputUrl ?? kCanonicalProductionBaseUrl;
+      final uri = Uri.tryParse(target);
+      final host = uri?.host.toLowerCase() ?? '';
+
+      // In Release mode: STRICT FAIL-CLOSED on localhost, 127.0.0.1, :8080, emulator, dev, staging
+      if (host == 'localhost' ||
+          host == '127.0.0.1' ||
+          host.startsWith('127.') ||
+          host == '10.0.2.2' ||
+          uri?.port == 8080 ||
+          target.contains('localhost') ||
+          target.contains('127.0.0.1') ||
+          target.contains(':8080') ||
+          target.contains('-dev') ||
+          target.contains('-staging') ||
+          target.contains('emulator')) {
+        throw StateError(
+          'RELEASE SECURITY INVARIANT VIOLATION: ApiClient cannot target loopback, development, staging, or emulator endpoints in Release mode: $target',
+        );
+      }
+      return target;
+    }
+    return inputUrl ?? 'http://localhost:8080';
+  }
 
   /// Sends a GET request.
   Future<dynamic> get(String path, {Map<String, String>? queryParams}) async {
@@ -68,6 +100,19 @@ class ApiClient {
     Uri uri = Uri.parse('$baseUrl$path');
     if (queryParams != null && queryParams.isNotEmpty) {
       uri = uri.replace(queryParameters: queryParams);
+    }
+
+    if (isRelease) {
+      final host = uri.host.toLowerCase();
+      if (host == 'localhost' ||
+          host == '127.0.0.1' ||
+          uri.port == 8080 ||
+          uri.toString().contains(':8080') ||
+          uri.path.startsWith('/api/v1/auth/')) {
+        throw StateError(
+          'RELEASE SECURITY INVARIANT VIOLATION: Blocked forbidden release request to $uri',
+        );
+      }
     }
 
     final headers = <String, String>{

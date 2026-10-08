@@ -31,7 +31,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final String _selectedTenant = 'TENANT-ALPHA';
-  UserRole _selectedRole = UserRole.member;
+  final UserRole _selectedRole = UserRole.member; // Invariant: Member registration only
   bool _consentAgreed = true;
 
   @override
@@ -49,8 +49,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(isRtl
-              ? 'يرجى الموافقة على اللوائح الداخلية للتمويل التعاوني.'
-              : 'Please accept the cooperative governance bylaws.'),
+              ? 'يرجى الموافقة على شروط خدمة منصة الحوض المركزي وضوابط المحاسبة.'
+              : 'Please accept the Central Pool platform terms and accounting invariants.'),
           backgroundColor: AppColors.crimsonRed,
         ),
       );
@@ -80,7 +80,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Scaffold(
         backgroundColor: AppColors.deepSlate,
         appBar: AppBar(
-          title: Text(isRtl ? 'إنشاء حساب جديد' : 'Create Account'),
+          title: Text(isRtl ? 'إنشاء حساب في الحوض المركزي' : 'Create Central Pool Account'),
           backgroundColor: Colors.transparent,
           elevation: 0,
         ),
@@ -97,15 +97,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     children: [
                       Text(
                         isRtl
-                            ? 'انضم إلى المنصة التعاونية'
-                            : 'Join the Cooperative',
+                            ? 'إنشاء حساب في الحوض المركزي'
+                            : 'Create Central Pool Account',
                         style: AppTypography.headlineMedium,
                       ),
                       const SizedBox(height: AppSpacing.xs),
                       Text(
                         isRtl
-                            ? 'أنشئ هويتك اللامركزية وانضم إلى دوائر السيولة الدورية الآمنة.'
-                            : 'Create your decentralized identity and join rotating liquidity cycles.',
+                            ? 'انضم إلى منصة إدارة السيولة التشاركية للحوض المركزي.'
+                            : 'Join the Central Pool rotating liquidity platform.',
                         style: AppTypography.bodyMedium
                             .copyWith(color: AppColors.textSecondary),
                       ),
@@ -184,45 +184,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 : 'Password must be at least 8 characters')
                             : null,
                       ),
-                      const SizedBox(height: AppSpacing.md),
-
-                      // Role Selector
-                      Text(
-                        isRtl ? 'نوع الحساب' : 'Account Role',
-                        style: AppTypography.labelMedium
-                            .copyWith(color: AppColors.textSecondary),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        decoration: BoxDecoration(
-                          color: AppColors.cardSurface,
-                          borderRadius: AppRadii.borderMd,
-                          border: Border.all(
-                              color: AppColors.borderSubtle, width: 1.0),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<UserRole>(
-                            value: _selectedRole,
-                            isExpanded: true,
-                            dropdownColor: AppColors.cardSurface,
-                            style: AppTypography.bodyLarge,
-                            items: UserRole.values
-                                .map(
-                                  (r) => DropdownMenuItem(
-                                    value: r,
-                                    child: Text(r.displayName),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() => _selectedRole = val);
-                              }
-                            },
-                          ),
-                        ),
-                      ),
                       const SizedBox(height: AppSpacing.lg),
 
                       // Consent Checkbox
@@ -241,8 +202,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               padding: const EdgeInsets.only(top: 10.0),
                               child: Text(
                                 isRtl
-                                    ? 'أوافق على اللوائح الداخلية لحوكمة التمويل التعاوني، وضوابط المحاسبة مزدوجة القيد، وشروط الخدمة.'
-                                    : 'I agree to the Cooperative Governance Bylaws, Double-Entry Accounting Invariants, and Terms of Service.',
+                                    ? 'أوافق على شروط خدمة منصة الحوض المركزي، وقواعد الحوكمة، وضوابط المحاسبة مزدوجة القيد.'
+                                    : 'I agree to the Central Pool Platform Terms of Service, Governance Rules, and Double-Entry Accounting Invariants.',
                                 style: AppTypography.bodySmall,
                               ),
                             ),

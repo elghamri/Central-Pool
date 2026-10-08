@@ -38,7 +38,7 @@ enum UserRole {
       case UserRole.platformAdmin:
         return 'Platform Admin';
       case UserRole.member:
-        return 'Cooperative Member';
+        return 'Central Pool Member';
     }
   }
 }

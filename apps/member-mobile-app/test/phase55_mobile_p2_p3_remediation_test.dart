@@ -5,17 +5,15 @@
 // - Tests D-03: LoginScreen demo auth UI gating in debug vs release mode.
 // - Tests D-04: Arabic product terminology cleanup (Zero 'الجمعية' / 'RTGS' in active Central Pool onboarding).
 
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:member_mobile_app/src/core/firebase/firebase_config.dart';
+import 'package:member_mobile_app/src/core/firebase/firebase_auth_service.dart';
 import 'package:member_mobile_app/src/core/network/api_client.dart';
 import 'package:member_mobile_app/src/core/security/session_storage.dart';
 import 'package:member_mobile_app/src/core/models/auth_dto.dart';
+import 'package:member_mobile_app/src/core/models/user_session.dart';
 import 'package:member_mobile_app/src/features/auth/state/auth_controller.dart';
 import 'package:member_mobile_app/src/features/auth/state/auth_state.dart';
 import 'package:member_mobile_app/src/features/auth/views/verify_otp_screen.dart';
@@ -326,7 +324,7 @@ void main() {
       expect(find.textContaining('RTGS'), findsNothing);
     });
 
-    testWidgets('RegisterScreen in Arabic displays pure cooperative bylaws consent text', (tester) async {
+    testWidgets('RegisterScreen in Arabic displays pure Central Pool terms consent text', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: RegisterScreen(
@@ -339,12 +337,33 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('اللوائح الداخلية لحوكمة التمويل التعاوني'), findsOneWidget);
+      expect(find.textContaining('شروط خدمة منصة الحوض المركزي'), findsOneWidget);
       expect(find.textContaining('الجمعية'), findsNothing);
+    });
+
+    testWidgets('RegisterScreen uses approved Central Pool English copy', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RegisterScreen(
+            isRtl: false,
+            onSubmit: (_) {},
+            onNavigateToLogin: () {},
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Create Central Pool Account'), findsWidgets);
+      expect(find.text('Join the Central Pool rotating liquidity platform.'), findsOneWidget);
+      expect(find.textContaining('Central Pool Platform Terms of Service'), findsOneWidget);
+      expect(find.textContaining('Join the Cooperative'), findsNothing);
+      expect(find.textContaining('decentralized identity'), findsNothing);
+      expect(find.textContaining('rotating liquidity cycles'), findsNothing);
     });
   });
 
-  group('Phase J: Release Safety Remediation Tests (F-01, F-02, F-03, F-04)', () {
+  group('Phase J: Release Safety Remediation Tests (F-01 through F-08)', () {
     // -------------------------------------------------------------
     // F-01: Central Pool Repository Base URL Resolution
     // -------------------------------------------------------------
@@ -358,131 +377,152 @@ void main() {
     });
 
     // -------------------------------------------------------------
-    // F-02: Release Demo Session Bypass Prevention
+    // F-02: ApiClient Release Security Guards (Zero Localhost / Port 8080 / Loopback)
     // -------------------------------------------------------------
-    test('F-02 Case A: Release + network failure (503 ApiException) => AuthenticationFailure, no synthetic session', () async {
-      final mockClient = MockClient((request) async {
-        return http.Response(jsonEncode({
-          'title': 'Service Unavailable',
-          'detail': 'Backend is temporarily unavailable.',
-        }), 503);
-      });
-
-      final storage = SecureSessionStorage();
-      final apiClient = ApiClient(sessionStorage: storage, httpClient: mockClient);
-      final authController = AuthController(
-        apiClient: apiClient,
-        sessionStorage: storage,
-        isRelease: true, // Test Release mode
+    test('F-02 Case A: ApiClient in Release mode rejects localhost', () {
+      expect(
+        () => ApiClient(
+          baseUrl: 'http://localhost:8080',
+          sessionStorage: SecureSessionStorage(),
+          isRelease: true,
+        ),
+        throwsA(isA<StateError>()),
       );
-
-      await authController.login(
-        const LoginRequest(identifier: 'alice@test.org', password: 'Password123!', tenantId: 'TENANT-ALPHA'),
-      );
-
-      expect(authController.value, isA<AuthenticationFailure>());
-      final failure = authController.value as AuthenticationFailure;
-      expect(failure.errorMessage, contains('Backend is temporarily unavailable'));
-
-      final session = await storage.getSession();
-      expect(session, isNull);
     });
 
-    test('F-02 Case B: Release + offline login (Socket/Network Error) => AuthenticationFailure, no synthetic JWT', () async {
-      final mockClient = MockClient((request) async {
-        throw const SocketException('Failed host lookup: localhost');
-      });
-
-      final storage = SecureSessionStorage();
-      final apiClient = ApiClient(sessionStorage: storage, httpClient: mockClient);
-      final authController = AuthController(
-        apiClient: apiClient,
-        sessionStorage: storage,
-        isRelease: true, // Test Release mode
+    test('F-02 Case B: ApiClient in Release mode rejects 127.0.0.1', () {
+      expect(
+        () => ApiClient(
+          baseUrl: 'http://127.0.0.1:8080',
+          sessionStorage: SecureSessionStorage(),
+          isRelease: true,
+        ),
+        throwsA(isA<StateError>()),
       );
-
-      await authController.login(
-        const LoginRequest(identifier: 'bob@test.org', password: 'Password123!', tenantId: 'TENANT-ALPHA'),
-      );
-
-      expect(authController.value, isA<AuthenticationFailure>());
-      final session = await storage.getSession();
-      expect(session, isNull);
     });
 
-    test('F-02 Case C: Release + offline OTP verification => AuthenticationFailure, no synthetic session', () async {
-      final storage = SecureSessionStorage();
-      final apiClient = ApiClient(sessionStorage: storage);
-      final authController = AuthController(
-        apiClient: apiClient,
-        sessionStorage: storage,
-        isRelease: true, // Test Release mode
+    test('F-02 Case C: ApiClient in Release mode rejects :8080 and emulator endpoints', () {
+      expect(
+        () => ApiClient(
+          baseUrl: 'http://10.0.2.2:8080',
+          sessionStorage: SecureSessionStorage(),
+          isRelease: true,
+        ),
+        throwsA(isA<StateError>()),
       );
-
-      await authController.verifyOtp(
-        const VerifyOtpRequest(identifier: 'charlie@test.org', otpCode: '123456', tenantId: 'TENANT-ALPHA'),
-      );
-
-      expect(authController.value, isA<AuthenticationFailure>());
-      final session = await storage.getSession();
-      expect(session, isNull);
     });
 
-    test('F-02 Case D: Release + offline registration => AuthenticationFailure, no synthetic session', () async {
-      final mockClient = MockClient((request) async {
-        throw const SocketException('Connection refused');
-      });
+    test('F-02 Case D: ApiClient in Release mode defaults to kCanonicalProductionBaseUrl safely', () {
+      final client = ApiClient(
+        sessionStorage: SecureSessionStorage(),
+        isRelease: true,
+      );
+      expect(client.baseUrl, equals(kCanonicalProductionBaseUrl));
+    });
 
+    // -------------------------------------------------------------
+    // F-03: Firebase Authentication Architecture & Zero REST Auth
+    // -------------------------------------------------------------
+    test('F-03 Case A: AuthController registration executes via FirebaseAuthService', () async {
+      final authService = FirebaseAuthService();
       final storage = SecureSessionStorage();
-      final apiClient = ApiClient(sessionStorage: storage, httpClient: mockClient);
       final authController = AuthController(
-        apiClient: apiClient,
+        authService: authService,
         sessionStorage: storage,
         isRelease: true,
       );
 
       await authController.register(
         const RegisterRequest(
-          fullName: 'Dave Doe',
-          email: 'dave@test.org',
-          phoneNumber: '+201000000000',
+          fullName: 'Zack Member',
+          email: 'zack@centralpool.org',
+          phoneNumber: '+201000000001',
           password: 'Password123!',
           tenantId: 'TENANT-ALPHA',
         ),
       );
 
-      expect(authController.value, isA<AuthenticationFailure>());
-      final session = await storage.getSession();
-      expect(session, isNull);
+      expect(authController.value, isA<Authenticated>());
+      final session = (authController.value as Authenticated).session;
+      expect(session.email, equals('zack@centralpool.org'));
+      expect(session.fullName, equals('Zack Member'));
+      expect(session.role, equals(UserRole.member));
+      expect(session.accessToken, startsWith('firebase-auth-token-'));
     });
 
-    test('F-02 Case E: Debug mode (isRelease: false) preserves demo fallback on offline 503', () async {
-      final mockClient = MockClient((request) async {
-        return http.Response(jsonEncode({'detail': 'Offline'}), 503);
-      });
-
+    test('F-03 Case B: AuthController login executes via FirebaseAuthService', () async {
+      final authService = FirebaseAuthService();
       final storage = SecureSessionStorage();
-      final apiClient = ApiClient(sessionStorage: storage, httpClient: mockClient);
       final authController = AuthController(
-        apiClient: apiClient,
+        authService: authService,
         sessionStorage: storage,
-        isRelease: false, // Debug mode
+        isRelease: true,
       );
 
       await authController.login(
-        const LoginRequest(identifier: 'eve@test.org', password: 'Password123!', tenantId: 'TENANT-ALPHA'),
+        const LoginRequest(
+          identifier: 'zack@centralpool.org',
+          password: 'Password123!',
+          tenantId: 'TENANT-ALPHA',
+        ),
       );
 
       expect(authController.value, isA<Authenticated>());
-      final session = await storage.getSession();
-      expect(session, isNotNull);
-      expect(session!.accessToken, equals('jwt-auth-token-valid-2026'));
+      final session = (authController.value as Authenticated).session;
+      expect(session.email, equals('zack@centralpool.org'));
+      expect(session.role, equals(UserRole.member));
+    });
+
+    test('F-03 Case C: Release mode fails closed on invalid auth and creates zero demo sessions', () async {
+      final authService = FirebaseAuthService();
+      final storage = SecureSessionStorage();
+      final authController = AuthController(
+        authService: authService,
+        sessionStorage: storage,
+        isRelease: true,
+      );
+
+      await authController.login(
+        const LoginRequest(
+          identifier: '',
+          password: '',
+          tenantId: 'TENANT-ALPHA',
+        ),
+      );
+
+      expect(authController.value, isA<AuthenticationFailure>());
+      final savedSession = await storage.getSession();
+      expect(savedSession, isNull);
+    });
+
+    test('F-03 Case D: Release mode registration fails closed on short password without demo fallback', () async {
+      final authService = FirebaseAuthService();
+      final storage = SecureSessionStorage();
+      final authController = AuthController(
+        authService: authService,
+        sessionStorage: storage,
+        isRelease: true,
+      );
+
+      await authController.register(
+        const RegisterRequest(
+          fullName: 'Short Pass',
+          email: 'short@centralpool.org',
+          phoneNumber: '+201000000002',
+          password: '123', // Invalid (< 8 chars)
+          tenantId: 'TENANT-ALPHA',
+        ),
+      );
+
+      expect(authController.value, isA<AuthenticationFailure>());
+      final savedSession = await storage.getSession();
+      expect(savedSession, isNull);
     });
 
     // -------------------------------------------------------------
-    // F-03: Demo OTP Preload Gating
+    // F-04: VerifyOtpScreen and LoginScreen Gating
     // -------------------------------------------------------------
-    testWidgets('F-03: VerifyOtpScreen in Release mode has empty initial OTP text', (tester) async {
+    testWidgets('F-04: VerifyOtpScreen renders correctly', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: VerifyOtpScreen(
@@ -498,10 +538,7 @@ void main() {
       expect(find.byType(VerifyOtpScreen), findsOneWidget);
     });
 
-    // -------------------------------------------------------------
-    // F-04: Tenant Dropdown Gating
-    // -------------------------------------------------------------
-    testWidgets('F-04: LoginScreen renders correctly and maintains form inputs', (tester) async {
+    testWidgets('F-05: LoginScreen renders correctly and maintains form inputs', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: LoginScreen(
